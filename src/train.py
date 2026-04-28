@@ -1,213 +1,301 @@
+"""Train the FraudShield AI models and persist the best artifact.
+
+The training flow keeps SMOTE inside the training split only, compares the
+candidate models on a validation holdout, tunes the operating threshold with
+precision-recall analysis, and saves a timestamped model artifact.
+"""
+
+from __future__ import annotations
+
+import json
+import sys
 import warnings
-warnings.filterwarnings("ignore")
-
-import pandas as pd
-import numpy as np
+from datetime import datetime
 from pathlib import Path
+from typing import Any
+
 import joblib
-
-from sklearn.model_selection import train_test_split, StratifiedKFold, cross_val_score
+import numpy as np
+import pandas as pd
+from imblearn.over_sampling import SMOTE
+from imblearn.pipeline import Pipeline as ImbPipeline
 from sklearn.compose import ColumnTransformer
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
-
-from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
-
+from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
-    classification_report,
     confusion_matrix,
-    roc_auc_score,
+    f1_score,
+    precision_recall_curve,
     precision_score,
     recall_score,
-    f1_score
+    roc_auc_score,
 )
-
-from imblearn.pipeline import Pipeline as ImbPipeline
-from imblearn.over_sampling import SMOTE
-
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from xgboost import XGBClassifier
 
 
-# ==========================================
-# CONFIG
-# ==========================================
-DATA_PATH = "data/fraud_transactions.csv"
-MODEL_DIR = Path("models")
-MODEL_DIR.mkdir(exist_ok=True)
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 
-TARGET = "is_fraud"
-RANDOM_STATE = 42
+import config
 
 
-# ==========================================
-# LOAD DATA
-# ==========================================
-def load_data():
-    df = pd.read_csv(DATA_PATH)
-    print("Dataset Loaded:", df.shape)
-    return df
+warnings.filterwarnings("ignore")
 
 
-# ==========================================
-# PREPROCESSOR
-# ==========================================
-def build_preprocessor(X):
-    categorical_cols = X.select_dtypes(include=["object"]).columns.tolist()
-    numerical_cols = X.select_dtypes(exclude=["object"]).columns.tolist()
+def load_data() -> pd.DataFrame:
+    """Load the fraud dataset and validate the required columns."""
 
-    preprocessor = ColumnTransformer(
+    if not config.DATA_PATH.exists():
+        raise FileNotFoundError(
+            f"Missing dataset: {config.DATA_PATH}. Run src/generate_data.py first."
+        )
+
+    df = pd.read_csv(config.DATA_PATH)
+    missing = [column for column in config.FEATURE_COLUMNS + [config.TARGET_COLUMN] if column not in df.columns]
+    if missing:
+        raise ValueError(f"Dataset is missing required columns: {missing}")
+
+    return df[config.FEATURE_COLUMNS + [config.TARGET_COLUMN]].copy()
+
+
+def build_preprocessor() -> ColumnTransformer:
+    """Create a reusable preprocessing block for numeric and categorical data."""
+
+    return ColumnTransformer(
         transformers=[
-            ("num", StandardScaler(), numerical_cols),
-            ("cat", OneHotEncoder(handle_unknown="ignore"), categorical_cols)
+            ("num", StandardScaler(), config.NUMERIC_FEATURES),
+            (
+                "cat",
+                OneHotEncoder(handle_unknown="ignore", sparse_output=False),
+                config.CATEGORICAL_FEATURES,
+            ),
+        ],
+        remainder="drop",
+    )
+
+
+def build_models() -> dict[str, Any]:
+    """Return the candidate estimators to compare."""
+
+    return {
+        "Logistic Regression": LogisticRegression(**config.MODEL_SPECS["Logistic Regression"]),
+        "Random Forest": RandomForestClassifier(**config.MODEL_SPECS["Random Forest"]),
+        "XGBoost": XGBClassifier(**config.MODEL_SPECS["XGBoost"]),
+    }
+
+
+def build_pipeline(model: Any) -> ImbPipeline:
+    """Create the full training pipeline with SMOTE only on the training split."""
+
+    return ImbPipeline(
+        steps=[
+            ("preprocessor", build_preprocessor()),
+            ("smote", SMOTE(random_state=config.RANDOM_STATE)),
+            ("model", model),
         ]
     )
 
-    return preprocessor
 
+def evaluate_predictions(y_true: pd.Series, y_prob: np.ndarray, threshold: float) -> dict[str, float]:
+    """Compute the main fraud metrics for a probability threshold."""
 
-# ==========================================
-# MODELS
-# ==========================================
-def get_models():
-    models = {
-        "Logistic Regression": LogisticRegression(
-            max_iter=1000,
-            class_weight="balanced",
-            random_state=RANDOM_STATE
-        ),
+    y_pred = (y_prob >= threshold).astype(int)
+    precision = precision_score(y_true, y_pred, zero_division=0)
+    recall = recall_score(y_true, y_pred, zero_division=0)
+    f1 = f1_score(y_true, y_pred, zero_division=0)
+    roc_auc = roc_auc_score(y_true, y_prob)
 
-        "Random Forest": RandomForestClassifier(
-            n_estimators=200,
-            max_depth=10,
-            class_weight="balanced",
-            random_state=RANDOM_STATE,
-            n_jobs=-1
-        ),
-
-        "XGBoost": XGBClassifier(
-            n_estimators=300,
-            max_depth=6,
-            learning_rate=0.05,
-            subsample=0.9,
-            colsample_bytree=0.9,
-            eval_metric="logloss",
-            random_state=RANDOM_STATE,
-            n_jobs=-1
-        )
+    return {
+        "precision": float(precision),
+        "recall": float(recall),
+        "f1": float(f1),
+        "roc_auc": float(roc_auc),
+        "confusion_matrix": confusion_matrix(y_true, y_pred).tolist(),
     }
 
-    return models
 
+def tune_threshold(y_true: pd.Series, y_prob: np.ndarray) -> tuple[float, pd.DataFrame]:
+    """Select the operating threshold that maximizes F1 from the PR curve."""
 
-# ==========================================
-# EVALUATE MODEL
-# ==========================================
-def evaluate_model(name, model, X_train, X_test, y_train, y_test, preprocessor):
-
-    pipeline = ImbPipeline(steps=[
-        ("prep", preprocessor),
-        ("smote", SMOTE(random_state=RANDOM_STATE)),
-        ("model", model)
-    ])
-
-    pipeline.fit(X_train, y_train)
-
-    y_pred = pipeline.predict(X_test)
-    y_prob = pipeline.predict_proba(X_test)[:, 1]
-
-    precision = precision_score(y_test, y_pred)
-    recall = recall_score(y_test, y_pred)
-    f1 = f1_score(y_test, y_pred)
-    roc = roc_auc_score(y_test, y_prob)
-
-    print("\n" + "=" * 60)
-    print(f"MODEL: {name}")
-    print("=" * 60)
-    print("Precision :", round(precision, 4))
-    print("Recall    :", round(recall, 4))
-    print("F1 Score  :", round(f1, 4))
-    print("ROC AUC   :", round(roc, 4))
-
-    print("\nConfusion Matrix:")
-    print(confusion_matrix(y_test, y_pred))
-
-    print("\nClassification Report:")
-    print(classification_report(y_test, y_pred))
-
-    return pipeline, recall, precision, f1, roc
-
-
-# ==========================================
-# MAIN TRAINING
-# ==========================================
-def main():
-
-    print("FraudShield AI Training Started...\n")
-
-    df = load_data()
-
-    X = df.drop(columns=[TARGET])
-    y = df[TARGET]
-
-    # Split
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y,
-        test_size=0.2,
-        stratify=y,
-        random_state=RANDOM_STATE
+    precision, recall, thresholds = precision_recall_curve(y_true, y_prob)
+    precision = precision[:-1]
+    recall = recall[:-1]
+    f1_scores = np.where(
+        (precision + recall) > 0,
+        (2 * precision * recall) / (precision + recall),
+        0.0,
     )
 
-    preprocessor = build_preprocessor(X)
+    threshold_frame = pd.DataFrame(
+        {
+            "threshold": thresholds,
+            "precision": precision,
+            "recall": recall,
+            "f1": f1_scores,
+        }
+    )
 
-    models = get_models()
+    best_index = int(threshold_frame["f1"].idxmax())
+    best_threshold = float(threshold_frame.loc[best_index, "threshold"])
+    return best_threshold, threshold_frame
 
-    best_model = None
-    best_score = 0
-    best_name = ""
 
-    results = []
+def build_feature_importance(pipeline: ImbPipeline) -> pd.DataFrame:
+    """Extract a simple global importance table from the trained model."""
 
-    for name, model in models.items():
+    preprocessor = pipeline.named_steps["preprocessor"]
+    model = pipeline.named_steps["model"]
+    feature_names = preprocessor.get_feature_names_out()
 
-        trained_model, recall, precision, f1, roc = evaluate_model(
-            name, model,
-            X_train, X_test,
-            y_train, y_test,
-            preprocessor
+    if hasattr(model, "feature_importances_"):
+        values = np.asarray(model.feature_importances_)
+    elif hasattr(model, "coef_"):
+        values = np.abs(np.asarray(model.coef_).ravel())
+    else:
+        values = np.zeros(len(feature_names), dtype=float)
+
+    importance = pd.DataFrame(
+        {
+            "feature": feature_names,
+            "importance": values,
+        }
+    ).sort_values("importance", ascending=False)
+
+    return importance.reset_index(drop=True)
+
+
+def serialize_metrics(metrics: dict[str, Any]) -> dict[str, Any]:
+    """Convert numpy values into JSON-friendly types."""
+
+    serializable = {}
+    for key, value in metrics.items():
+        if isinstance(value, (np.integer, np.floating)):
+            serializable[key] = value.item()
+        elif isinstance(value, np.ndarray):
+            serializable[key] = value.tolist()
+        else:
+            serializable[key] = value
+    return serializable
+
+
+def main() -> None:
+    print("FraudShield AI training started.\n")
+
+    config.MODEL_DIR.mkdir(parents=True, exist_ok=True)
+
+    df = load_data()
+    X = df[config.FEATURE_COLUMNS]
+    y = df[config.TARGET_COLUMN]
+
+    X_train_full, X_test, y_train_full, y_test = train_test_split(
+        X,
+        y,
+        test_size=config.TEST_SIZE,
+        stratify=y,
+        random_state=config.RANDOM_STATE,
+    )
+
+    X_train, X_validation, y_train, y_validation = train_test_split(
+        X_train_full,
+        y_train_full,
+        test_size=config.VALIDATION_SIZE,
+        stratify=y_train_full,
+        random_state=config.RANDOM_STATE,
+    )
+
+    comparison_rows = []
+    fitted_candidates: dict[str, ImbPipeline] = {}
+
+    for model_name, estimator in build_models().items():
+        pipeline = build_pipeline(estimator)
+        pipeline.fit(X_train, y_train)
+
+        validation_probabilities = pipeline.predict_proba(X_validation)[:, 1]
+        validation_metrics = evaluate_predictions(y_validation, validation_probabilities, config.DEFAULT_THRESHOLD)
+        selection_score = validation_metrics["f1"] + validation_metrics["recall"]
+
+        comparison_rows.append(
+            {
+                "model": model_name,
+                "precision": round(validation_metrics["precision"], 4),
+                "recall": round(validation_metrics["recall"], 4),
+                "f1": round(validation_metrics["f1"], 4),
+                "roc_auc": round(validation_metrics["roc_auc"], 4),
+                "selection_score": round(selection_score, 4),
+            }
         )
+        fitted_candidates[model_name] = pipeline
 
-        results.append({
-            "Model": name,
-            "Recall": recall,
-            "Precision": precision,
-            "F1": f1,
-            "ROC_AUC": roc
-        })
+    comparison_df = pd.DataFrame(comparison_rows).sort_values(
+        by=["selection_score", "f1", "recall"],
+        ascending=False,
+    ).reset_index(drop=True)
 
-        # Choose best model by Recall first, then ROC
-        score = (recall * 0.7) + (roc * 0.3)
+    best_model_name = str(comparison_df.loc[0, "model"])
+    validation_pipeline = fitted_candidates[best_model_name]
 
-        if score > best_score:
-            best_score = score
-            best_model = trained_model
-            best_name = name
+    validation_probabilities = validation_pipeline.predict_proba(X_validation)[:, 1]
+    best_threshold, threshold_curve = tune_threshold(y_validation, validation_probabilities)
 
-    # Save Best Model
-    model_path = MODEL_DIR / "fraud_model.pkl"
-    joblib.dump(best_model, model_path)
+    final_pipeline = build_pipeline(build_models()[best_model_name])
+    final_pipeline.fit(X_train_full, y_train_full)
 
-    # Save Results
-    result_df = pd.DataFrame(results)
-    result_df.to_csv(MODEL_DIR / "model_results.csv", index=False)
+    test_probabilities = final_pipeline.predict_proba(X_test)[:, 1]
+    final_metrics = evaluate_predictions(y_test, test_probabilities, best_threshold)
 
-    print("\n" + "#" * 60)
-    print("BEST MODEL SELECTED:", best_name)
-    print("Saved To:", model_path)
-    print("#" * 60)
+    timestamp = datetime.now().strftime("%Y%m%d")
+    model_path = config.MODEL_DIR / f"{config.MODEL_PREFIX}_{timestamp}.pkl"
+    metadata_path = model_path.with_suffix(".json")
 
-    print("\nModel Comparison:")
-    print(result_df.sort_values(by="Recall", ascending=False))
+    model_payload = {
+        "pipeline": final_pipeline,
+        "model_name": best_model_name,
+        "trained_at": datetime.now().isoformat(timespec="seconds"),
+        "threshold": best_threshold,
+        "feature_columns": config.FEATURE_COLUMNS,
+        "numeric_features": config.NUMERIC_FEATURES,
+        "categorical_features": config.CATEGORICAL_FEATURES,
+        "comparison_table": comparison_df,
+        "threshold_curve": threshold_curve,
+        "feature_importance": build_feature_importance(final_pipeline),
+        "background_data": X_train_full.sample(
+            n=min(config.SHAP_BACKGROUND_SIZE, len(X_train_full)),
+            random_state=config.RANDOM_STATE,
+        ).reset_index(drop=True),
+        "metrics": final_metrics,
+    }
+    joblib.dump(model_payload, model_path)
+
+    metadata = {
+        "model_name": best_model_name,
+        "trained_at": model_payload["trained_at"],
+        "threshold": best_threshold,
+        "feature_columns": config.FEATURE_COLUMNS,
+        "metrics": serialize_metrics(final_metrics),
+        "comparison_table": comparison_df.to_dict(orient="records"),
+        "feature_importance": model_payload["feature_importance"].head(15).to_dict(orient="records"),
+        "threshold_curve_sample": threshold_curve.head(20).round(6).to_dict(orient="records"),
+    }
+    with metadata_path.open("w", encoding="utf-8") as handle:
+        json.dump(metadata, handle, indent=2)
+
+    comparison_df.to_csv(config.MODEL_COMPARISON_PATH, index=False)
+
+    print("Model comparison table (validation split):")
+    print(comparison_df.to_string(index=False))
+    print("\nBest model:", best_model_name)
+    print("Saved model:", model_path)
+    print("Saved metadata:", metadata_path)
+    print("\nFinal test metrics:")
+    print(f"Precision: {final_metrics['precision']:.4f}")
+    print(f"Recall   : {final_metrics['recall']:.4f}")
+    print(f"F1       : {final_metrics['f1']:.4f}")
+    print(f"ROC-AUC  : {final_metrics['roc_auc']:.4f}")
+    print("Confusion matrix:")
+    print(np.array(final_metrics["confusion_matrix"]))
 
 
 if __name__ == "__main__":

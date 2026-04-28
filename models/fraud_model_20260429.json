@@ -1,0 +1,246 @@
+{
+  "model_name": "Logistic Regression",
+  "trained_at": "2026-04-29T01:24:22",
+  "threshold": 0.8121971224016525,
+  "feature_columns": [
+    "transaction_amount",
+    "transaction_hour",
+    "is_weekend",
+    "merchant_category",
+    "user_location",
+    "device_type",
+    "previous_transaction_gap",
+    "transaction_velocity",
+    "failed_login_attempts",
+    "account_age_days",
+    "ip_risk_score",
+    "geo_mismatch_flag",
+    "unusual_device_flag"
+  ],
+  "metrics": {
+    "precision": 0.14058956916099774,
+    "recall": 0.3147208121827411,
+    "f1": 0.19435736677115986,
+    "roc_auc": 0.8117001373763651,
+    "confusion_matrix": [
+      [
+        9424,
+        379
+      ],
+      [
+        135,
+        62
+      ]
+    ]
+  },
+  "comparison_table": [
+    {
+      "model": "Logistic Regression",
+      "precision": 0.0531,
+      "recall": 0.6954,
+      "f1": 0.0987,
+      "roc_auc": 0.7935,
+      "selection_score": 0.7941
+    },
+    {
+      "model": "Random Forest",
+      "precision": 0.0968,
+      "recall": 0.0761,
+      "f1": 0.0852,
+      "roc_auc": 0.753,
+      "selection_score": 0.1614
+    },
+    {
+      "model": "XGBoost",
+      "precision": 0.1429,
+      "recall": 0.0102,
+      "f1": 0.019,
+      "roc_auc": 0.7592,
+      "selection_score": 0.0291
+    }
+  ],
+  "feature_importance": [
+    {
+      "feature": "cat__merchant_category_fuel",
+      "importance": 1.0058060803302509
+    },
+    {
+      "feature": "cat__merchant_category_electronics",
+      "importance": 0.6985023906997675
+    },
+    {
+      "feature": "cat__merchant_category_fashion",
+      "importance": 0.6900492403050243
+    },
+    {
+      "feature": "cat__merchant_category_gift_card",
+      "importance": 0.6329982717576998
+    },
+    {
+      "feature": "num__geo_mismatch_flag",
+      "importance": 0.5297333783595692
+    },
+    {
+      "feature": "num__transaction_hour",
+      "importance": 0.5211931775973321
+    },
+    {
+      "feature": "cat__merchant_category_food",
+      "importance": 0.49944020871226313
+    },
+    {
+      "feature": "cat__merchant_category_gaming",
+      "importance": 0.4555782911450449
+    },
+    {
+      "feature": "cat__merchant_category_travel",
+      "importance": 0.43791942690801666
+    },
+    {
+      "feature": "cat__device_type_tablet",
+      "importance": 0.4234151373729794
+    },
+    {
+      "feature": "num__ip_risk_score",
+      "importance": 0.4071306865312801
+    },
+    {
+      "feature": "cat__merchant_category_grocery",
+      "importance": 0.3972051118362812
+    },
+    {
+      "feature": "num__unusual_device_flag",
+      "importance": 0.3882746824860232
+    },
+    {
+      "feature": "num__failed_login_attempts",
+      "importance": 0.33027550003541434
+    },
+    {
+      "feature": "cat__device_type_web",
+      "importance": 0.2821240070943901
+    }
+  ],
+  "threshold_curve_sample": [
+    {
+      "threshold": 0.011119,
+      "precision": 0.0197,
+      "recall": 1.0,
+      "f1": 0.038639
+    },
+    {
+      "threshold": 0.012023,
+      "precision": 0.019702,
+      "recall": 1.0,
+      "f1": 0.038643
+    },
+    {
+      "threshold": 0.012376,
+      "precision": 0.019704,
+      "recall": 1.0,
+      "f1": 0.038646
+    },
+    {
+      "threshold": 0.012418,
+      "precision": 0.019706,
+      "recall": 1.0,
+      "f1": 0.03865
+    },
+    {
+      "threshold": 0.013424,
+      "precision": 0.019708,
+      "recall": 1.0,
+      "f1": 0.038654
+    },
+    {
+      "threshold": 0.013896,
+      "precision": 0.01971,
+      "recall": 1.0,
+      "f1": 0.038658
+    },
+    {
+      "threshold": 0.015081,
+      "precision": 0.019712,
+      "recall": 1.0,
+      "f1": 0.038662
+    },
+    {
+      "threshold": 0.01657,
+      "precision": 0.019714,
+      "recall": 1.0,
+      "f1": 0.038665
+    },
+    {
+      "threshold": 0.017432,
+      "precision": 0.019716,
+      "recall": 1.0,
+      "f1": 0.038669
+    },
+    {
+      "threshold": 0.018672,
+      "precision": 0.019718,
+      "recall": 1.0,
+      "f1": 0.038673
+    },
+    {
+      "threshold": 0.020189,
+      "precision": 0.01972,
+      "recall": 1.0,
+      "f1": 0.038677
+    },
+    {
+      "threshold": 0.02031,
+      "precision": 0.019722,
+      "recall": 1.0,
+      "f1": 0.038681
+    },
+    {
+      "threshold": 0.020378,
+      "precision": 0.019724,
+      "recall": 1.0,
+      "f1": 0.038684
+    },
+    {
+      "threshold": 0.020571,
+      "precision": 0.019726,
+      "recall": 1.0,
+      "f1": 0.038688
+    },
+    {
+      "threshold": 0.021191,
+      "precision": 0.019728,
+      "recall": 1.0,
+      "f1": 0.038692
+    },
+    {
+      "threshold": 0.021844,
+      "precision": 0.01973,
+      "recall": 1.0,
+      "f1": 0.038696
+    },
+    {
+      "threshold": 0.022128,
+      "precision": 0.019732,
+      "recall": 1.0,
+      "f1": 0.0387
+    },
+    {
+      "threshold": 0.022375,
+      "precision": 0.019734,
+      "recall": 1.0,
+      "f1": 0.038703
+    },
+    {
+      "threshold": 0.022591,
+      "precision": 0.019736,
+      "recall": 1.0,
+      "f1": 0.038707
+    },
+    {
+      "threshold": 0.02273,
+      "precision": 0.019738,
+      "recall": 1.0,
+      "f1": 0.038711
+    }
+  ]
+}

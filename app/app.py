@@ -1,305 +1,434 @@
-# app/app.py
+"""Streamlit application for FraudShield AI."""
 
-import streamlit as st
+from __future__ import annotations
+
+import sys
+from datetime import datetime
+from pathlib import Path
+
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from pathlib import Path
-import sys
-import random
+import streamlit as st
 
-# ==================================================
-# IMPORT PREDICTION ENGINE
-# ==================================================
-sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
-from predict import predict_transaction
 
-# ==================================================
-# PAGE CONFIG
-# ==================================================
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+import config
+from src.predict import get_model_summary, predict_batch, predict_transaction
+
+
 st.set_page_config(
-    page_title="FraudShield AI",
+    page_title=config.APP_TITLE,
     page_icon="🛡️",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed",
 )
 
-# ==================================================
-# PREMIUM CSS
-# ==================================================
-st.markdown("""
-<style>
-html, body, [class*="css"] {
-    font-family: 'Segoe UI', sans-serif;
-}
 
-.main-title {
-    font-size: 42px;
-    font-weight: 800;
-    color: #00F5B0;
-    margin-bottom: 0;
-}
-
-.sub-title {
-    color: #A9A9A9;
-    font-size: 16px;
-    margin-top: -10px;
-}
-
-.card {
-    background: #111111;
-    padding: 18px;
-    border-radius: 18px;
-    border: 1px solid #262626;
-    box-shadow: 0px 4px 18px rgba(0,0,0,0.25);
-}
-
-.green {
-    color: #00FF99;
-    font-weight: bold;
-}
-
-.red {
-    color: #FF4B4B;
-    font-weight: bold;
-}
-
-.orange {
-    color: #FFA500;
-    font-weight: bold;
-}
-
-.small-text {
-    color: #BFBFBF;
-    font-size: 13px;
-}
-</style>
-""", unsafe_allow_html=True)
-
-# ==================================================
-# HEADER
-# ==================================================
-st.markdown('<p class="main-title"> FraudShield AI</p>', unsafe_allow_html=True)
 st.markdown(
-    '<p class="sub-title">Premium Fraud Detection & Real-Time Risk Intelligence Platform</p>',
-    unsafe_allow_html=True
+    """
+<style>
+    [data-testid="stSidebar"] {
+        display: none;
+    }
+    .stApp {
+        background:
+            radial-gradient(circle at top left, rgba(14, 165, 233, 0.22), transparent 24%),
+            radial-gradient(circle at top right, rgba(34, 197, 94, 0.14), transparent 22%),
+            linear-gradient(180deg, #050816 0%, #0a1020 38%, #f7fafc 100%);
+        color: #e2e8f0;
+    }
+    .main [data-testid="stMarkdownContainer"] p,
+    .main [data-testid="stMarkdownContainer"] li,
+    .main [data-testid="stMarkdownContainer"] span {
+        color: #dbeafe;
+    }
+    .hero-title {
+        font-size: 3.15rem;
+        font-weight: 900;
+        letter-spacing: -0.05em;
+        margin-bottom: 0.18rem;
+        color: #f8fafc;
+    }
+    .hero-subtitle {
+        color: rgba(226, 232, 240, 0.88);
+        font-size: 1.04rem;
+        margin-bottom: 0.85rem;
+        max-width: 52rem;
+    }
+    .info-pill {
+        display: inline-block;
+        padding: 0.35rem 0.75rem;
+        border-radius: 999px;
+        background: rgba(14, 165, 233, 0.18);
+        color: #e0f2fe;
+        border: 1px solid rgba(125, 211, 252, 0.28);
+        font-size: 0.82rem;
+        margin-bottom: 0.25rem;
+    }
+    .panel-title {
+        color: #f8fafc;
+        font-size: 1.1rem;
+        font-weight: 800;
+        margin-bottom: 0.35rem;
+    }
+    .panel-subtitle {
+        color: rgba(226, 232, 240, 0.8);
+        font-size: 0.95rem;
+        margin-bottom: 1rem;
+    }
+    .card {
+        border: 1px solid rgba(148, 163, 184, 0.22);
+        border-radius: 20px;
+        padding: 1rem 1.1rem;
+        background: rgba(15, 23, 42, 0.90);
+        box-shadow: 0 16px 42px rgba(2, 6, 23, 0.24);
+    }
+    .metric-label {
+        color: #94a3b8;
+        font-size: 0.82rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        margin-bottom: 0.35rem;
+    }
+    .metric-value {
+        font-size: 1.9rem;
+        font-weight: 800;
+        line-height: 1;
+        color: #f8fafc;
+        word-break: normal;
+        overflow-wrap: anywhere;
+    }
+    .metric-value.compact {
+        font-size: 1.45rem;
+        line-height: 1.08;
+    }
+    .metric-support {
+        color: #cbd5e1;
+        font-size: 0.9rem;
+        margin-top: 0.35rem;
+    }
+    .badge-low { color: #052e16; background: #86efac; }
+    .badge-medium { color: #713f12; background: #fde68a; }
+    .badge-high { color: #7f1d1d; background: #fca5a5; }
+    .badge {
+        display: inline-block;
+        padding: 0.35rem 0.8rem;
+        border-radius: 999px;
+        font-weight: 700;
+        font-size: 0.82rem;
+    }
+    .section-shell {
+        background: rgba(15, 23, 42, 0.84);
+        border: 1px solid rgba(148, 163, 184, 0.18);
+        border-radius: 24px;
+        padding: 1.25rem;
+        box-shadow: 0 18px 40px rgba(2, 6, 23, 0.18);
+    }
+    .accent-line {
+        height: 4px;
+        width: 160px;
+        border-radius: 999px;
+        background: linear-gradient(90deg, #22c55e 0%, #38bdf8 48%, #f59e0b 100%);
+        margin: 0.75rem 0 1rem;
+    }
+</style>
+""",
+    unsafe_allow_html=True,
 )
 
-st.divider()
 
-# ==================================================
-# SIDEBAR
-# ==================================================
-st.sidebar.header(" Transaction Inputs")
+def _load_dataset() -> pd.DataFrame | None:
+    if config.DATA_PATH.exists():
+        return pd.read_csv(config.DATA_PATH)
+    return None
 
-transaction_amount = st.sidebar.number_input("Amount ₹", 1.0, value=5000.0)
-transaction_hour = st.sidebar.slider("Hour", 0, 23, 12)
-is_weekend = st.sidebar.selectbox("Weekend?", [0, 1])
 
-merchant_category = st.sidebar.selectbox(
-    "Merchant Category",
-    ["grocery", "electronics", "travel", "fashion",
-     "food", "fuel", "gaming", "gift_card"]
-)
+def _risk_badge(probability: float) -> tuple[str, str]:
+    if probability < config.RISK_LEVELS["Low"]:
+        return "badge-low", "Low"
+    if probability < config.RISK_LEVELS["Medium"]:
+        return "badge-medium", "Medium"
+    return "badge-high", "High"
 
-user_location = st.sidebar.selectbox(
-    "User Location",
-    ["Mumbai", "Delhi", "Bangalore", "Hyderabad",
-     "Chennai", "Pune", "Kolkata", "Bhubaneswar"]
-)
 
-device_type = st.sidebar.selectbox("Device Type", ["mobile", "web", "tablet"])
-previous_transaction_gap = st.sidebar.number_input("Prev Gap (mins)", 0.0, value=15.0)
-transaction_velocity = st.sidebar.slider("Txns Last Hour", 0, 20, 2)
-failed_login_attempts = st.sidebar.slider("Failed Logins", 0, 10, 0)
-account_age_days = st.sidebar.number_input("Account Age Days", 1, value=365)
-ip_risk_score = st.sidebar.slider("IP Risk Score", 0, 100, 20)
-geo_mismatch_flag = st.sidebar.selectbox("Geo Mismatch?", [0, 1])
-unusual_device_flag = st.sidebar.selectbox("Unusual Device?", [0, 1])
+def _load_example(example_name: str) -> None:
+    st.session_state["transaction_form_values"] = config.MODEL_EXAMPLES[example_name].copy()
 
-analyze = st.sidebar.button(" Analyze Transaction")
 
-# ==================================================
-# DEFAULT SCREEN
-# ==================================================
-if not analyze:
-    st.info("Use sidebar controls and click **Analyze Transaction**.")
-    st.stop()
+def _read_form_values() -> dict[str, object]:
+    return st.session_state.get("transaction_form_values", config.MODEL_EXAMPLES["legit"].copy())
 
-# ==================================================
-# INPUT OBJECT
-# ==================================================
-input_data = {
-    "transaction_amount": transaction_amount,
-    "transaction_hour": transaction_hour,
-    "is_weekend": is_weekend,
-    "merchant_category": merchant_category,
-    "user_location": user_location,
-    "device_type": device_type,
-    "previous_transaction_gap": previous_transaction_gap,
-    "transaction_velocity": transaction_velocity,
-    "failed_login_attempts": failed_login_attempts,
-    "account_age_days": account_age_days,
-    "ip_risk_score": ip_risk_score,
-    "geo_mismatch_flag": geo_mismatch_flag,
-    "unusual_device_flag": unusual_device_flag
-}
 
-# ==================================================
-# PREDICTION
-# ==================================================
-result = predict_transaction(input_data)
+def _ensure_form_state() -> None:
+    if "transaction_form_values" not in st.session_state:
+        st.session_state["transaction_form_values"] = config.MODEL_EXAMPLES["legit"].copy()
 
-prediction = result["prediction"]
-prob = result["fraud_probability"]
-risk = result["risk_level"]
-confidence = result["model_confidence"]
 
-# ==================================================
-# RISK COLOR
-# ==================================================
-if risk == "Low":
-    risk_color = "green"
-elif risk == "Medium":
-    risk_color = "orange"
-else:
-    risk_color = "red"
+def _log_feedback(feedback_label: str, result: dict[str, object], input_data: dict[str, object], threshold: float) -> None:
+    row = {
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "feedback": feedback_label,
+        "model_name": result.get("model_name"),
+        "trained_at": result.get("trained_at"),
+        "threshold": threshold,
+        "prediction": result.get("prediction"),
+        "fraud_probability": result.get("fraud_probability"),
+        "risk_level": result.get("risk_level"),
+        **input_data,
+    }
 
-pred_color = "red" if prediction == "Fraud" else "green"
+    feedback_frame = pd.DataFrame([row])
+    file_exists = config.FEEDBACK_PATH.exists()
+    feedback_frame.to_csv(config.FEEDBACK_PATH, mode="a", header=not file_exists, index=False)
 
-# ==================================================
-# TOP KPI CARDS
-# ==================================================
-c1, c2, c3, c4 = st.columns(4)
 
-with c1:
-    st.markdown(
-        f'<div class="card"><h4>Prediction</h4><h2 class="{pred_color}">{prediction}</h2></div>',
-        unsafe_allow_html=True
-    )
+def _color_prediction_frame(frame: pd.DataFrame) -> pd.io.formats.style.Styler:
+    def color_rows(row: pd.Series) -> list[str]:
+        color = "#7f1d1d" if row.get("prediction") == "Fraud" else "#14532d"
+        return [f"background-color: {color}; color: #f8fafc"] * len(row)
 
-with c2:
-    st.markdown(
-        f'<div class="card"><h4>Fraud Probability</h4><h2>{prob}%</h2></div>',
-        unsafe_allow_html=True
-    )
-
-with c3:
-    st.markdown(
-        f'<div class="card"><h4>Risk Level</h4><h2 class="{risk_color}">{risk}</h2></div>',
-        unsafe_allow_html=True
-    )
-
-with c4:
-    st.markdown(
-        f'<div class="card"><h4>Confidence</h4><h2>{confidence}%</h2></div>',
-        unsafe_allow_html=True
-    )
-
-st.markdown("")
-
-# ==================================================
-# GAUGE CHART
-# ==================================================
-left, right = st.columns([2, 1])
-
-with left:
-    fig = go.Figure(go.Indicator(
-        mode="gauge+number",
-        value=prob,
-        title={'text': "Fraud Risk Meter"},
-        gauge={
-            'axis': {'range': [0, 100]},
-            'bar': {'color': "red"},
-            'steps': [
-                {'range': [0, 30], 'color': "#00FF99"},
-                {'range': [30, 70], 'color': "#FFA500"},
-                {'range': [70, 100], 'color': "#FF4B4B"}
-            ]
+    return frame.style.apply(color_rows, axis=1).format(
+        {
+            "fraud_probability": "{:.4f}",
+            "fraud_probability_pct": "{:.2f}",
+            "threshold": "{:.2f}",
         }
-    ))
-    fig.update_layout(height=350)
-    st.plotly_chart(fig, use_container_width=True)
-
-# ==================================================
-# SUSPICIOUS FACTORS
-# ==================================================
-with right:
-    st.markdown("###  Suspicious Factors")
-
-    for item in result["suspicious_factors"]:
-        st.warning(item)
-
-# ==================================================
-# FRAUD TREND CHARTS
-# ==================================================
-st.markdown("##  Fraud Analytics")
-
-c1, c2 = st.columns(2)
-
-with c1:
-    trend_df = pd.DataFrame({
-        "Day": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
-        "Fraud Cases": [14, 19, 12, 21, 18, 25, 17]
-    })
-
-    fig2 = px.line(
-        trend_df,
-        x="Day",
-        y="Fraud Cases",
-        markers=True,
-        title="Weekly Fraud Activity"
     )
-    st.plotly_chart(fig2, use_container_width=True)
 
-with c2:
-    device_df = pd.DataFrame({
-        "Device": ["Mobile", "Web", "Tablet"],
-        "Fraud %": [52, 38, 10]
-    })
 
-    fig3 = px.pie(
-        device_df,
-        names="Device",
-        values="Fraud %",
-        title="Fraud by Device Type"
+def _render_header() -> None:
+    summary = get_model_summary()
+    trained_at = datetime.fromisoformat(summary["trained_at"]).strftime("%Y-%m-%d %H:%M:%S") if summary.get("trained_at") not in (None, "unknown") else "unknown"
+    version_label = Path(summary["model_path"]).stem.replace("fraud_model_", "v")
+    st.markdown(f'<div class="hero-title">{config.APP_TITLE}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="hero-subtitle">{config.APP_TAGLINE}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="info-pill">{config.DISCLAIMER}</div>', unsafe_allow_html=True)
+    st.markdown('<div class="accent-line"></div>', unsafe_allow_html=True)
+
+    model_cols = st.columns(4)
+    with model_cols[0]:
+        st.markdown(
+            f'<div class="card"><div class="metric-label">Model</div><div class="metric-value compact">{summary["model_name"]}</div><div class="metric-support">Best on validation split</div></div>',
+            unsafe_allow_html=True,
+        )
+    with model_cols[1]:
+        st.markdown(
+            f'<div class="card"><div class="metric-label">Last trained</div><div class="metric-value compact">{trained_at}</div><div class="metric-support">Latest training run</div></div>',
+            unsafe_allow_html=True,
+        )
+    with model_cols[2]:
+        st.markdown(
+            '<div class="card"><div class="metric-label">Data</div><div class="metric-value compact">Demo data</div><div class="metric-support">Portfolio-safe sample transactions</div></div>',
+            unsafe_allow_html=True,
+        )
+
+
+def _render_transaction_form() -> None:
+    st.markdown('<div class="section-shell">', unsafe_allow_html=True)
+    st.markdown('<div class="panel-title">Single transaction analysis</div>', unsafe_allow_html=True)
+    st.markdown('<div class="panel-subtitle">Score one transaction, review SHAP drivers, and capture analyst feedback.</div>', unsafe_allow_html=True)
+    col1, col2 = st.columns([1, 1])
+    with col1:
+        st.button("Load fraud example", on_click=_load_example, args=("fraud",), use_container_width=True)
+    with col2:
+        st.button("Load legit example", on_click=_load_example, args=("legit",), use_container_width=True)
+
+    defaults = _read_form_values()
+
+    with st.form("single_transaction_form"):
+        grid = st.columns(2)
+        values = {}
+
+        values["transaction_amount"] = grid[0].number_input("Transaction amount", min_value=0.0, value=float(defaults["transaction_amount"]), step=50.0)
+        values["transaction_hour"] = grid[1].number_input("Transaction hour", min_value=0, max_value=23, value=int(defaults["transaction_hour"]), step=1)
+        values["is_weekend"] = grid[0].selectbox("Weekend transaction", [0, 1], index=[0, 1].index(int(defaults["is_weekend"])))
+        merchant_options = ["grocery", "electronics", "travel", "fashion", "food", "fuel", "gaming", "gift_card"]
+        values["merchant_category"] = grid[1].selectbox("Merchant category", merchant_options, index=merchant_options.index(defaults["merchant_category"]))
+        location_options = ["Mumbai", "Delhi", "Bangalore", "Hyderabad", "Chennai", "Pune", "Kolkata", "Bhubaneswar"]
+        values["user_location"] = grid[0].selectbox("User location", location_options, index=location_options.index(defaults["user_location"]))
+        values["device_type"] = grid[1].selectbox("Device type", ["mobile", "web", "tablet"], index=["mobile", "web", "tablet"].index(defaults["device_type"]))
+        values["previous_transaction_gap"] = grid[0].number_input("Previous transaction gap (minutes)", min_value=0.0, value=float(defaults["previous_transaction_gap"]), step=1.0)
+        values["transaction_velocity"] = grid[1].number_input("Transaction velocity", min_value=0, value=int(defaults["transaction_velocity"]), step=1)
+        values["failed_login_attempts"] = grid[0].number_input("Failed login attempts", min_value=0, value=int(defaults["failed_login_attempts"]), step=1)
+        values["account_age_days"] = grid[1].number_input("Account age (days)", min_value=1, value=int(defaults["account_age_days"]), step=1)
+        values["ip_risk_score"] = grid[0].slider("IP risk score", min_value=0.0, max_value=100.0, value=float(defaults["ip_risk_score"]), step=1.0)
+        values["geo_mismatch_flag"] = grid[1].selectbox("Geo mismatch flag", [0, 1], index=[0, 1].index(int(defaults["geo_mismatch_flag"])))
+        values["unusual_device_flag"] = grid[0].selectbox("Unusual device flag", [0, 1], index=[0, 1].index(int(defaults["unusual_device_flag"])))
+
+        submitted = st.form_submit_button("Analyze transaction", use_container_width=True)
+
+    if submitted:
+        st.session_state["transaction_form_values"] = values.copy()
+        result = predict_transaction(values)
+        st.session_state["last_result"] = result
+        st.session_state["last_inputs"] = values
+
+    if "last_result" not in st.session_state:
+        st.info("Load an example or enter transaction details, then run the analysis.")
+        return
+
+    result = st.session_state["last_result"]
+    input_data = st.session_state["last_inputs"]
+    probability = float(result["fraud_probability"])
+    badge_class, badge_text = _risk_badge(probability / 100.0)
+
+    metrics = st.columns(4)
+    with metrics[0]:
+        st.markdown(
+            f'<div class="card"><div class="metric-label">Prediction</div><div class="metric-value">{result["prediction"]}</div><div class="metric-support">Current operating rule</div></div>',
+            unsafe_allow_html=True,
+        )
+    with metrics[1]:
+        st.markdown(
+            f'<div class="card"><div class="metric-label">Fraud probability</div><div class="metric-value">{probability:.2f}%</div><div class="metric-support">Model confidence score</div></div>',
+            unsafe_allow_html=True,
+        )
+    with metrics[2]:
+        st.markdown(
+            f'<div class="card"><div class="metric-label">Risk level</div><div class="metric-value"><span class="badge {badge_class}">{badge_text}</span></div><div class="metric-support">Business banding</div></div>',
+            unsafe_allow_html=True,
+        )
+    with metrics[3]:
+        st.markdown(
+            f'<div class="card"><div class="metric-label">Model confidence</div><div class="metric-value">{float(result["model_confidence"]):.2f}%</div><div class="metric-support">Higher means stronger signal</div></div>',
+            unsafe_allow_html=True,
+        )
+
+    gauge = go.Figure(
+        go.Indicator(
+            mode="gauge+number",
+            value=probability,
+            title={"text": "Fraud probability"},
+            gauge={
+                "axis": {"range": [0, 100]},
+                "bar": {"color": "#dc2626"},
+                "steps": [
+                    {"range": [0, 33], "color": "#dcfce7"},
+                    {"range": [33, 67], "color": "#fef3c7"},
+                    {"range": [67, 100], "color": "#fee2e2"},
+                ],
+            },
+        )
     )
-    st.plotly_chart(fig3, use_container_width=True)
+    gauge.update_layout(height=320, margin=dict(l=20, r=20, t=60, b=20))
 
-# ==================================================
-# MOCK SHAP EXPLAINABILITY
-# ==================================================
-st.markdown("##  Model Explanation")
+    left, right = st.columns([1.2, 0.8])
+    with left:
+        st.plotly_chart(gauge, use_container_width=True)
+    with right:
+        st.markdown('<div class="panel-title">SHAP drivers</div>', unsafe_allow_html=True)
+        shap_table = pd.DataFrame(result["shap_explanations"])
+        if shap_table.empty:
+            st.info("No SHAP explanation available for this model.")
+        else:
+            chart_frame = shap_table.set_index("feature")[["shap_value"]].sort_values("shap_value")
+            st.bar_chart(chart_frame)
+            st.dataframe(
+                shap_table[["feature", "shap_value", "direction"]],
+                use_container_width=True,
+                hide_index=True,
+            )
 
-explain_data = pd.DataFrame({
-    "Feature": [
-        "IP Risk Score",
-        "Failed Logins",
-        "Transaction Amount",
-        "Account Age",
-        "Geo Mismatch"
-    ],
-    "Impact": [
-        random.randint(5, 20),
-        random.randint(4, 15),
-        random.randint(3, 12),
-        -random.randint(2, 8),
-        random.randint(4, 12)
-    ]
-})
+    st.markdown('<div class="panel-title">Analyst feedback</div>', unsafe_allow_html=True)
+    fb_left, fb_right = st.columns(2)
+    if fb_left.button("👍 Helpful", use_container_width=True):
+        _log_feedback("up", result, input_data, float(result.get("threshold", config.DEFAULT_THRESHOLD)))
+        st.success("Feedback saved to feedback.csv")
+    if fb_right.button("👎 Needs review", use_container_width=True):
+        _log_feedback("down", result, input_data, float(result.get("threshold", config.DEFAULT_THRESHOLD)))
+        st.warning("Feedback saved to feedback.csv")
+    st.markdown('</div>', unsafe_allow_html=True)
 
-fig4 = px.bar(
-    explain_data,
-    x="Impact",
-    y="Feature",
-    orientation="h",
-    title="Top Drivers Behind Prediction"
-)
 
-st.plotly_chart(fig4, use_container_width=True)
+def _render_batch_tab() -> None:
+    st.markdown('<div class="section-shell">', unsafe_allow_html=True)
+    st.markdown('<div class="panel-title">Batch scoring</div>', unsafe_allow_html=True)
+    st.markdown('<div class="panel-subtitle">Upload a CSV, score all rows, and download the color-coded results.</div>', unsafe_allow_html=True)
+    uploaded = st.file_uploader("Upload a CSV with the feature columns", type=["csv"])
+    if uploaded is None:
+        st.info("Upload a CSV to score multiple transactions at once.")
+        st.markdown('</div>', unsafe_allow_html=True)
+        return
 
-# ==================================================
-# FOOTER
-# ==================================================
-st.divider()
-st.caption("Built by Kashyap  | FraudShield AI | End-to-End ML Product")
+    batch_df = pd.read_csv(uploaded)
+    scored = predict_batch(batch_df)
+    styled = _color_prediction_frame(scored)
+    st.dataframe(styled, use_container_width=True, hide_index=True)
+
+    csv_bytes = scored.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        label="Download scored results",
+        data=csv_bytes,
+        file_name="fraudshield_batch_results.csv",
+        mime="text/csv",
+        use_container_width=True,
+    )
+    st.markdown('</div>', unsafe_allow_html=True)
+
+
+def _render_analytics_tab() -> None:
+    st.markdown('<div class="section-shell">', unsafe_allow_html=True)
+    st.markdown('<div class="panel-title">Analytics</div>', unsafe_allow_html=True)
+    st.markdown('<div class="panel-subtitle">Score distributions, predicted fraud rate, and global model importance.</div>', unsafe_allow_html=True)
+    dataset = _load_dataset()
+    if dataset is None:
+        st.info("Place data/fraud_transactions.csv locally to unlock the analytics view.")
+        st.markdown('</div>', unsafe_allow_html=True)
+        return
+
+    scored = predict_batch(dataset)
+    col1, col2 = st.columns(2)
+    with col1:
+        fig = px.histogram(
+            scored,
+            x="fraud_probability",
+            color="prediction",
+            nbins=30,
+            title="Score distribution",
+            color_discrete_map={"Fraud": "#dc2626", "Legit": "#16a34a"},
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+    with col2:
+        fraud_rate = float((scored["prediction"] == "Fraud").mean() * 100)
+        st.metric("Predicted fraud rate", f"{fraud_rate:.2f}%")
+        rate_fig = px.histogram(
+            scored,
+            x="risk_level",
+            category_orders={"risk_level": ["Low", "Medium", "High"]},
+            title="Risk band distribution",
+        )
+        st.plotly_chart(rate_fig, use_container_width=True)
+
+    summary = get_model_summary()
+    feature_importance = summary.get("feature_importance")
+    if isinstance(feature_importance, pd.DataFrame) and not feature_importance.empty:
+        st.markdown('<div class="panel-title">Global feature importance</div>', unsafe_allow_html=True)
+        top_importance = feature_importance.head(12).set_index("feature")[["importance"]]
+        st.bar_chart(top_importance)
+    else:
+        st.info("No feature importance was stored with the model artifact.")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+
+def main() -> None:
+    _ensure_form_state()
+    _render_header()
+    tabs = st.tabs(["Single transaction", "Batch prediction", "Analytics"])
+    with tabs[0]:
+        _render_transaction_form()
+    with tabs[1]:
+        _render_batch_tab()
+    with tabs[2]:
+        _render_analytics_tab()
+
+    st.divider()
+    st.caption("FraudShield AI | Synthetic portfolio project | SHAP-backed explainability")
+
+
+if __name__ == "__main__":
+    main()

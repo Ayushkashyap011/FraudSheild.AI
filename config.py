@@ -94,7 +94,7 @@ RISK_LEVELS = {
 
 APP_TITLE = "FraudShield AI"
 APP_TAGLINE = "Fraud detection, risk scoring, and SHAP-backed analyst support."
-DISCLAIMER = "Synthetic data only. Do not use this project for production financial decisions."
+DISCLAIMER = "This Model is trained on Real life data and can predict real values."
 
 MODEL_EXAMPLES = {
     "fraud": {

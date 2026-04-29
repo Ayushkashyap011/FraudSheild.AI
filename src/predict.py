@@ -108,6 +108,35 @@ def _find_transformer_step(pipeline: Any) -> Any | None:
     return None
 
 
+def _fallback_explanations(artifact: dict[str, Any], input_df: pd.DataFrame) -> pd.DataFrame:
+    """Return a deterministic fallback when SHAP cannot be computed."""
+
+    feature_importance = artifact.get("feature_importance")
+    if isinstance(feature_importance, pd.DataFrame) and not feature_importance.empty:
+        candidate_features = feature_importance.head(config.TOP_SHAP_FEATURES)["feature"].tolist()
+    else:
+        candidate_features = list(input_df.columns[: config.TOP_SHAP_FEATURES])
+
+    rows: list[dict[str, Any]] = []
+    for feature_name in candidate_features:
+        if feature_name in input_df.columns:
+            value = input_df.iloc[0][feature_name]
+        elif "__" in feature_name:
+            value = input_df.iloc[0].get(feature_name.split("__", 1)[-1], "n/a")
+        else:
+            value = "n/a"
+
+        rows.append(
+            {
+                "feature": feature_name,
+                "shap_value": 0.0,
+                "direction": f"Fallback explanation for {value}",
+            }
+        )
+
+    return pd.DataFrame(rows)
+
+
 def _build_explainer(artifact: dict[str, Any]):
     """Create a SHAP explainer for the transformed feature space."""
 
@@ -145,31 +174,35 @@ def explain_transaction(input_df: pd.DataFrame) -> pd.DataFrame:
     """Return the top SHAP features and their direction for one transaction."""
 
     artifact, model_path = load_latest_model_artifact()
-    explainer, transformer, uses_transformed_space = get_explainer_cached(str(model_path))
-    if uses_transformed_space and transformer is not None:
-        explanation = explainer(transformer.transform(input_df))
-        feature_names = list(transformer.get_feature_names_out())
-    else:
-        explanation = explainer(input_df)
-        feature_names = list(input_df.columns)
 
-    if getattr(explanation, "values", None) is None:
-        return pd.DataFrame(columns=["feature", "shap_value", "direction"])
+    try:
+        explainer, transformer, uses_transformed_space = get_explainer_cached(str(model_path))
+        if uses_transformed_space and transformer is not None:
+            explanation = explainer(transformer.transform(input_df))
+            feature_names = list(transformer.get_feature_names_out())
+        else:
+            explanation = explainer(input_df)
+            feature_names = list(input_df.columns)
 
-    shap_values = np.asarray(explanation.values).reshape(-1)
-    feature_frame = pd.DataFrame(
-        {
-            "feature": feature_names,
-            "shap_value": shap_values,
-        }
-    )
-    feature_frame["direction"] = np.where(
-        feature_frame["shap_value"] >= 0,
-        "Increases fraud risk",
-        "Decreases fraud risk",
-    )
-    feature_frame["abs_shap"] = feature_frame["shap_value"].abs()
-    return feature_frame.sort_values("abs_shap", ascending=False).drop(columns=["abs_shap"]).head(config.TOP_SHAP_FEATURES).reset_index(drop=True)
+        if getattr(explanation, "values", None) is None:
+            return _fallback_explanations(artifact, input_df)
+
+        shap_values = np.asarray(explanation.values).reshape(-1)
+        feature_frame = pd.DataFrame(
+            {
+                "feature": feature_names,
+                "shap_value": shap_values,
+            }
+        )
+        feature_frame["direction"] = np.where(
+            feature_frame["shap_value"] >= 0,
+            "Increases fraud risk",
+            "Decreases fraud risk",
+        )
+        feature_frame["abs_shap"] = feature_frame["shap_value"].abs()
+        return feature_frame.sort_values("abs_shap", ascending=False).drop(columns=["abs_shap"]).head(config.TOP_SHAP_FEATURES).reset_index(drop=True)
+    except Exception:
+        return _fallback_explanations(artifact, input_df)
 
 
 def predict_transaction(input_data: dict[str, Any], threshold: float | None = None) -> dict[str, Any]:

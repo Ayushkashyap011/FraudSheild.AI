@@ -81,24 +81,58 @@ def _validate_input(input_data: dict[str, Any]) -> pd.DataFrame:
     )
 
 
+def _find_transformer_step(pipeline: Any) -> Any | None:
+    """Find the preprocessing step in both current and legacy pipelines."""
+
+    if not hasattr(pipeline, "named_steps"):
+        return None
+
+    preferred_names = (
+        "preprocessor",
+        "prep",
+        "preprocess",
+        "column_transformer",
+        "transformer",
+    )
+    for step_name in preferred_names:
+        step = pipeline.named_steps.get(step_name)
+        if step is not None and hasattr(step, "transform"):
+            return step
+
+    for step_name, step in pipeline.named_steps.items():
+        if step_name in {"smote", "model"}:
+            continue
+        if hasattr(step, "transform"):
+            return step
+
+    return None
+
+
 def _build_explainer(artifact: dict[str, Any]):
     """Create a SHAP explainer for the transformed feature space."""
 
     pipeline = artifact["pipeline"]
-    preprocessor = pipeline.named_steps["preprocessor"]
-    model = pipeline.named_steps["model"]
+    transformer = _find_transformer_step(pipeline)
+    model = pipeline.named_steps["model"] if hasattr(pipeline, "named_steps") and "model" in pipeline.named_steps else pipeline
 
     background = artifact.get("background_data")
     if not isinstance(background, pd.DataFrame) or background.empty:
         background = pd.DataFrame(columns=config.FEATURE_COLUMNS)
 
-    transformed_background = preprocessor.transform(background)
+    if transformer is not None:
+        transformed_background = transformer.transform(background)
 
-    def predict_positive(transformed_rows: Any) -> np.ndarray:
-        return model.predict_proba(transformed_rows)[:, 1]
+        def predict_positive(transformed_rows: Any) -> np.ndarray:
+            return model.predict_proba(transformed_rows)[:, 1]
 
-    explainer = shap.Explainer(predict_positive, transformed_background)
-    return explainer, preprocessor
+        explainer = shap.Explainer(predict_positive, transformed_background)
+        return explainer, transformer, True
+
+    def predict_positive(raw_rows: Any) -> np.ndarray:
+        return pipeline.predict_proba(raw_rows)[:, 1]
+
+    explainer = shap.Explainer(predict_positive, background)
+    return explainer, None, False
 
 
 @lru_cache(maxsize=2)
@@ -111,15 +145,18 @@ def explain_transaction(input_df: pd.DataFrame) -> pd.DataFrame:
     """Return the top SHAP features and their direction for one transaction."""
 
     artifact, model_path = load_latest_model_artifact()
-    explainer, preprocessor = get_explainer_cached(str(model_path))
-    transformed_input = preprocessor.transform(input_df)
-    explanation = explainer(transformed_input)
+    explainer, transformer, uses_transformed_space = get_explainer_cached(str(model_path))
+    if uses_transformed_space and transformer is not None:
+        explanation = explainer(transformer.transform(input_df))
+        feature_names = list(transformer.get_feature_names_out())
+    else:
+        explanation = explainer(input_df)
+        feature_names = list(input_df.columns)
 
     if getattr(explanation, "values", None) is None:
         return pd.DataFrame(columns=["feature", "shap_value", "direction"])
 
     shap_values = np.asarray(explanation.values).reshape(-1)
-    feature_names = list(preprocessor.get_feature_names_out())
     feature_frame = pd.DataFrame(
         {
             "feature": feature_names,

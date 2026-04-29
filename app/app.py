@@ -233,9 +233,9 @@ def _render_transaction_form() -> None:
     st.markdown('<div class="panel-subtitle">Score one transaction, review SHAP drivers, and capture analyst feedback.</div>', unsafe_allow_html=True)
     col1, col2 = st.columns([1, 1])
     with col1:
-        st.button("Load fraud example", on_click=_load_example, args=("fraud",), use_container_width=True)
+        st.button("Load fraud example", on_click=_load_example, args=("fraud",), width="stretch")
     with col2:
-        st.button("Load legit example", on_click=_load_example, args=("legit",), use_container_width=True)
+        st.button("Load legit example", on_click=_load_example, args=("legit",), width="stretch")
 
     defaults = _read_form_values()
 
@@ -259,7 +259,7 @@ def _render_transaction_form() -> None:
         values["geo_mismatch_flag"] = grid[1].selectbox("Geo mismatch flag", [0, 1], index=[0, 1].index(int(defaults["geo_mismatch_flag"])))
         values["unusual_device_flag"] = grid[0].selectbox("Unusual device flag", [0, 1], index=[0, 1].index(int(defaults["unusual_device_flag"])))
 
-        submitted = st.form_submit_button("Analyze transaction", use_container_width=True)
+        submitted = st.form_submit_button("Analyze transaction", width="stretch")
 
     if submitted:
         st.session_state["transaction_form_values"] = values.copy()
@@ -318,7 +318,7 @@ def _render_transaction_form() -> None:
 
     left, right = st.columns([1.2, 0.8])
     with left:
-        st.plotly_chart(gauge, use_container_width=True)
+        st.plotly_chart(gauge, width="stretch")
     with right:
         st.markdown('<div class="panel-title">SHAP drivers</div>', unsafe_allow_html=True)
         shap_table = pd.DataFrame(result["shap_explanations"])
@@ -329,16 +329,16 @@ def _render_transaction_form() -> None:
             st.bar_chart(chart_frame)
             st.dataframe(
                 shap_table[["feature", "shap_value", "direction"]],
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
             )
 
     st.markdown('<div class="panel-title">Analyst feedback</div>', unsafe_allow_html=True)
     fb_left, fb_right = st.columns(2)
-    if fb_left.button("👍 Helpful", use_container_width=True):
+    if fb_left.button("👍 Helpful", width="stretch"):
         _log_feedback("up", result, input_data, float(result.get("threshold", config.DEFAULT_THRESHOLD)))
         st.success("Feedback saved to feedback.csv")
-    if fb_right.button("👎 Needs review", use_container_width=True):
+    if fb_right.button("👎 Needs review", width="stretch"):
         _log_feedback("down", result, input_data, float(result.get("threshold", config.DEFAULT_THRESHOLD)))
         st.warning("Feedback saved to feedback.csv")
     st.markdown('</div>', unsafe_allow_html=True)
@@ -357,7 +357,7 @@ def _render_batch_tab() -> None:
     batch_df = pd.read_csv(uploaded)
     scored = predict_batch(batch_df)
     styled = _color_prediction_frame(scored)
-    st.dataframe(styled, use_container_width=True, hide_index=True)
+    st.dataframe(styled, width="stretch", hide_index=True)
 
     csv_bytes = scored.to_csv(index=False).encode("utf-8")
     st.download_button(
@@ -365,7 +365,7 @@ def _render_batch_tab() -> None:
         data=csv_bytes,
         file_name="fraudshield_batch_results.csv",
         mime="text/csv",
-        use_container_width=True,
+        width="stretch",
     )
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -391,7 +391,7 @@ def _render_analytics_tab() -> None:
             title="Score distribution",
             color_discrete_map={"Fraud": "#dc2626", "Legit": "#16a34a"},
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
     with col2:
         fraud_rate = float((scored["prediction"] == "Fraud").mean() * 100)
@@ -402,7 +402,7 @@ def _render_analytics_tab() -> None:
             category_orders={"risk_level": ["Low", "Medium", "High"]},
             title="Risk band distribution",
         )
-        st.plotly_chart(rate_fig, use_container_width=True)
+        st.plotly_chart(rate_fig, width="stretch")
 
     summary = get_model_summary()
     feature_importance = summary.get("feature_importance")

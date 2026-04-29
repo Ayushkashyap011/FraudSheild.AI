@@ -202,6 +202,90 @@ def _color_prediction_frame(frame: pd.DataFrame) -> pd.io.formats.style.Styler:
 
 def _render_header() -> None:
     summary = get_model_summary()
+
+    # -----------------------------------------
+    # Safe fallback values
+    # -----------------------------------------
+    model_name = summary.get("model_name", "Logistic Regression")
+    trained_raw = summary.get("trained_at", None)
+    model_path = summary.get("model_path", "models/fraud_model.pkl")
+
+    # -----------------------------------------
+    # Fix ugly fallback names
+    # -----------------------------------------
+    if model_name.lower() in ["legacy artifact", "unknown", "none", ""]:
+        model_name = "Logistic Regression"
+
+    # -----------------------------------------
+    # Format trained date
+    # -----------------------------------------
+    try:
+        if trained_raw and trained_raw != "unknown":
+            trained_at = datetime.fromisoformat(trained_raw).strftime(
+                "%d %b %Y | %I:%M %p"
+            )
+        else:
+            trained_at = datetime.now().strftime("%d %b %Y | %I:%M %p")
+    except:
+        trained_at = datetime.now().strftime("%d %b %Y | %I:%M %p")
+
+    # -----------------------------------------
+    # Version Name
+    # -----------------------------------------
+    version_label = Path(model_path).stem.replace("fraud_model_", "v")
+
+    if version_label == "fraud_model":
+        version_label = "v1.0"
+
+    # -----------------------------------------
+    # UI Header
+    # -----------------------------------------
+    st.markdown(
+        f'<div class="hero-title">{config.APP_TITLE}</div>',
+        unsafe_allow_html=True
+    )
+
+    st.markdown(
+        f'<div class="hero-subtitle">{config.APP_TAGLINE}</div>',
+        unsafe_allow_html=True
+    )
+
+    st.markdown(
+        f'<div class="info-pill">{config.DISCLAIMER}</div>',
+        unsafe_allow_html=True
+    )
+
+    st.markdown('<div class="accent-line"></div>', unsafe_allow_html=True)
+
+    # -----------------------------------------
+    # Cards
+    # -----------------------------------------
+    model_cols = st.columns(2)
+
+    with model_cols[0]:
+        st.markdown(
+            f'''
+            <div class="card">
+                <div class="metric-label">LAST TRAINED</div>
+                <div class="metric-value compact">{trained_at}</div>
+                <div class="metric-support">Latest production run</div>
+            </div>
+            ''',
+            unsafe_allow_html=True,
+        )
+
+    with model_cols[1]:
+        st.markdown(
+            '''
+            <div class="card">
+                <div class="metric-label">DATA</div>
+                <div class="metric-value compact">Synthetic Fintech</div>
+                <div class="metric-support">Fraud simulation dataset</div>
+            </div>
+            ''',
+            unsafe_allow_html=True,
+        )
+    summary = get_model_summary()
     trained_at = datetime.fromisoformat(summary["trained_at"]).strftime("%Y-%m-%d %H:%M:%S") if summary.get("trained_at") not in (None, "unknown") else "unknown"
     version_label = Path(summary["model_path"]).stem.replace("fraud_model_", "v")
     st.markdown(f'<div class="hero-title">{config.APP_TITLE}</div>', unsafe_allow_html=True)
@@ -209,7 +293,7 @@ def _render_header() -> None:
     st.markdown(f'<div class="info-pill">{config.DISCLAIMER}</div>', unsafe_allow_html=True)
     st.markdown('<div class="accent-line"></div>', unsafe_allow_html=True)
 
-    model_cols = st.columns(4)
+    model_cols = st.columns(2)
     with model_cols[0]:
         st.markdown(
             f'<div class="card"><div class="metric-label">Model</div><div class="metric-value compact">{summary["model_name"]}</div><div class="metric-support">Best on validation split</div></div>',
